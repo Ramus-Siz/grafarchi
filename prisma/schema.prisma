@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+//
+// ===================== ENUMS =====================
+//
+enum Role {
+  SUPERADMIN   // Gestion globale du SaaS
+  ADMIN        // Gestion d'une entreprise
+  MANAGER      // Peut gérer utilisateurs et documents
+  USER         // Utilisateur standard
+  AUDITOR      // Lecture seule + audit
+}
+
+//
+// ===================== MODELS =====================
+//
+
+model Tenant {
+  id          String      @id @default(cuid())
+  name        String
+  slug        String      @unique
+  description String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  users       User[]
+  documents   Document[]
+  folders     Folder[]
+  auditLogs   AuditLog[]
+}
+
+model User {
+  id          String      @id @default(cuid())
+  email       String      @unique
+  hash        String
+  firstName   String?
+  lastName    String?
+  role        Role        @default(USER)
+  isActive    Boolean     @default(true)
+  tenant      Tenant      @relation(fields: [tenantId], references: [id])
+  tenantId    String
+  sessions    Session[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  documents   Document[]  @relation("UserDocuments")
+  auditLogs   AuditLog[]
+}
+
+model Session {
+  id            String    @id @default(cuid())
+  sessionToken  String    @unique
+  user          User      @relation(fields: [userId], references: [id])
+  userId        String
+  expiresAt     DateTime
+  createdAt     DateTime  @default(now())
+}
+
+model Folder {
+  id          String      @id @default(cuid())
+  name        String
+  parent      Folder?     @relation("FolderChildren", fields: [parentId], references: [id])
+  parentId    String?
+  children    Folder[]    @relation("FolderChildren")
+  tenant      Tenant      @relation(fields: [tenantId], references: [id])
+  tenantId    String
+  createdBy   User?       @relation(fields: [createdById], references: [id])
+  createdById String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  documents   Document[]
+}
+
+model Document {
+  id           String      @id @default(cuid())
+  tenant       Tenant      @relation(fields: [tenantId], references: [id])
+  tenantId     String
+
+  folder       Folder?     @relation(fields: [folderId], references: [id])
+  folderId     String?
+
+  title        String
+  description  String?
+  fileKey      String      // clé du fichier dans le stockage (S3/MinIO)
+  fileMime     String
+  fileSize     Int
+  version      Int         @default(1)
+  tags         String[]    @default([])
+  metadata     Json?
+  createdBy    User?       @relation("UserDocuments", fields: [createdById], references: [id])
+  createdById  String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  archivedAt   DateTime?
+}
+
+model AuditLog {
+  id          String      @id @default(cuid())
+  tenantId    String
+  userId      String?
+  user        User?       @relation(fields: [userId], references: [id])
+  action      String
+  entityType  String?
+  entityId    String?
+  meta        Json?
+  createdAt   DateTime    @default(now())
+}
+
+//
+// ===================== INDEXES =====================
+//
+
+// Index pour recherche full-text (titre + description)
+@@index([title], type: Gin)
